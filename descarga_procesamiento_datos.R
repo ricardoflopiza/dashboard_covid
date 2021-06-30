@@ -196,7 +196,7 @@ fig <- datos_nacional %>%
 ggplotly(fig)
 
 
-# datos a nivel regional
+# Nivel regional ####
 datos_region %>%
   kbl(caption = "<center><strong>Indicadores de gestión - Nivel Regional</strong></center>") %>%
   kable_paper("hover", full_width = F)
@@ -218,6 +218,7 @@ DT::datatable(datos_comuna,
                 style = 'text-align: center; font-size: 12px',
                 htmltools::em('Indicadores de gestión - Nivel Comunal'))
 )
+
 
 # Se construye una tabla que solo contiene los casos que han sido completados o aprobados por el EG
 aapor <- llamados %>% 
@@ -298,7 +299,7 @@ tasas_region <- aapor %>%
 
 
 ##################
-# NIVEL comunal #####
+# Nivel comunal #####
 ##################
 tasa_cooperacion_comuna <- aapor %>% 
   filter(cod_ent %in% c(1100, 1200, 2000, 2310:2360) ) %>% 
