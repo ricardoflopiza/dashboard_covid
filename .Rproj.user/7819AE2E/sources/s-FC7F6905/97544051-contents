@@ -1,0 +1,40 @@
+# funcion de orden superior, incorpora media de 1000 intentos en función que genera una serie de valores
+make_averaged <- function(fn, samples = 1000){
+  
+  return_average <- function(...){
+    total <- 0
+    initial_samples <- samples
+    actual_samples <- samples
+    
+    while (actual_samples > 0){
+      total = total + fn(...)
+      actual_samples = actual_samples - 1
+    }
+    
+    return(total/initial_samples)
+  }
+  
+  return(return_average)
+}
+
+
+# hacemos que sample se convierta en una función que calcula promedio del sample
+averaged_sample <- make_averaged(sample)
+
+averaged_sample(1:10, 1)
+
+averaged_sample(1:3, 1)
+
+
+# creamos un dado en base a sample y aplicamos lo mismo
+dice <- function(){
+  sample(1:6, 1)
+}
+
+dice()
+
+averaged_dice <- make_averaged(dice)
+
+averaged_dice()
+
+

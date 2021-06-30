@@ -1,0 +1,24 @@
+{
+    "id": "4F7E5545",
+    "path": "~/Documents/INE/servicios_compartidos/COVID/shiny_tablero_Covid/reporte_sdo.Rmd",
+    "project_path": null,
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": true,
+    "created": 1624803647279.0,
+    "source_on_save": false,
+    "relative_order": 7,
+    "properties": {
+        "cursorPosition": "342,69",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1624481345,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1624804469148,
+    "read_only": false,
+    "read_only_alternatives": []
+}

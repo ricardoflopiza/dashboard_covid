@@ -1,6 +1,7 @@
-.Rproj.user
+}.Rproj.user
 .Rhistory
 .RData
+.shiny_tablero_covid.Rproj
 .Ruserdata
 .Rproj
 data/
