@@ -45,15 +45,16 @@ csscode <- HTML("
       margin-left: 0px !important;
 }")
 
-ui <- dashboardPagePlus(skin= "black", sidebar_fullCollapse = T,
+ui <- dashboardPage(skin= "black",
     # tags$head(tags$link(rel="shortcut icon", href="apple-icon-57x57.png")),
-    dashboardHeaderPlus(disable = F,
+    dashboardHeader(disable = F,
                     titleWidth = 330,
-                    title = tagList(
-                        span(class = "logo-lg", "Tablero - COVID"), 
-                        img(src = "apple-icon-57x57.png", width = 30)),
-                    enable_rightsidebar = F,
-                    rightSidebarIcon = "gears"),
+                  title = tagList(
+                      span(class = "logo-lg", "Tablero - COVID"), 
+                      img(src = "apple-icon-57x57.png", width = 30))
+                  #  enable_rightsidebar = F,
+                  #  rightSidebarIcon = "gears"
+                  ),
     dashboardSidebar(
          #  tags$head(tags$script(jscode)),
         #   tags$head(tags$style(csscode)),    
@@ -82,7 +83,7 @@ ui <- dashboardPagePlus(skin= "black", sidebar_fullCollapse = T,
  ), # dashboardSidebar
     dashboardBody(
       tabItems(
-      tabItem(tabName = "TAB_ind_gest_datos", h2("1. Indicadores de gestión - Resultados:")),                #1
+      tabItem(tabName = "TAB_ind_gest_datos", h2("1. Indicadores de gestión - Resultados:"), ),                #1
       tabItem(tabName = "TAB_ind_gest_def", h2("1. Indicadores de gestión - Definiciones:"),br(), htmlOutput("out_ind_gestion") ),    #2
       tabItem(tabName = "TAB_ind_result_datos", h2("2 Indicadores de resultado operativo - Resultados:")),  #3
       tabItem(tabName = "TAB_ind_result_def", h2("2 Indicadores de resultado operativo - Definiciones:"), br(), htmlOutput("out_ind_result_op")

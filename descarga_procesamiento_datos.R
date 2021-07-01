@@ -221,6 +221,8 @@ DT::datatable(datos_comuna,
 
 
 # Se construye una tabla que solo contiene los casos que han sido completados o aprobados por el EG
+# Tabla EG ####
+
 aapor <- llamados %>% 
   left_join(principal %>% select(interview__id, interview__key, interview__status, region, comuna, folio),
             by = c("interview__id", "interview__key") ) %>% 
@@ -236,7 +238,6 @@ aapor <- llamados %>%
     contacto = if_else(cod_ent %in% c(1100:2000, 2310:2360), 1, 0, missing = 0),
     rechazo = if_else(cod_ent %in% c(1200, 2000), 1, 0, missing = 0 )
   ) 
-
 
 aapor$entrevistada
 
@@ -295,7 +296,6 @@ tasas_region <- aapor %>%
   mutate(tasa_respuesta = entrevistada / muestra * 100 ) %>% 
   mutate_if(.predicate = is.numeric, ~round(., 2)) %>% 
   rename(lograda = entrevistada) 
-
 
 
 ##################
