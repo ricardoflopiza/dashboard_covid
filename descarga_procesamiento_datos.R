@@ -12,6 +12,8 @@ library(rio)
 library(tidyverse)
 library(plotly)
 
+source("tema_elegante_ggplot.R")
+
 actualizar <- F
 
 # Descargar los datos desde el servidor
@@ -21,42 +23,114 @@ if(actualizar == T){
 
 
 # Cargar las tablas necesarias #####
+ruta_datos <- "/home/ricardo/Documents/INE/2. servicios_compartidos/COVID/shiny_tablero_Covid/tablero_covid/C:/Users/klehm/OneDrive - Instituto Nacional de Estadisticas/covid"
 
-ruta_datos <- "/home/ricardo/Documents/INE/servicios_compartidos/COVID/shiny_tablero_Covid/C:/Users/klehm/OneDrive - Instituto Nacional de Estadisticas/covid"
-
-llamados <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/llamados.tab"))
+# Archivos versión inicial del cuestionario
+    llamados <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/llamados.tab"))
 asignaciones <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/assignment__actions.tab"))
-principal <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/covid19_r3_v3.tab"))
+   principal <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/covid19_r3_v3.tab"))
+      action <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_2/interview__actions.tab"))
+
+# Archivos de la última versión del cuestionario
+    llamados2 <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_3/llamados.tab"))
+asignaciones2 <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_3/assignment__actions.tab"))
+   principal2 <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_3/covid19_r3_v3.tab"))
+      action2 <- read_tsv(paste0(ruta_datos,"/data/covid19_r3_v2_3/interview__actions.tab"))
+
 muestra_seguimiento <- read_excel(paste0(ruta_datos,"/data/selecciones_muestrales/10062021_Muestra_Covid_3_4.xlsx"), sheet = "Log_Cov1_o_Cov2")
 muestra_casen <- read_excel(paste0(ruta_datos,"/data/selecciones_muestrales/10062021_Muestra_Covid_3_4.xlsx"), sheet = "Complemento CASEN")
 comunas <- read_excel(paste0(ruta_datos,"/data/Comunas.xlsx"))
+
 
 # Cargar cuentas de usuarios, para pegarle los nombres 
 primeros_usuarios <- read_excel(paste0(ruta_datos,"/administrativo/personal_covid_actualizado.xlsx"))
 usuarios_nuevos <- read_tsv(paste0(ruta_datos,"/administrativo/cuentas_nuevo_personal_20210615.tab"))
 
-# Unir todos los usuarios y sacar supervisores ####
+# Unir todos los usuarios y sacar supervisores
 usuarios <- primeros_usuarios %>% 
-  bind_rows(usuarios_nuevos) %>% 
+  bind_rows(usuarios_nuevos) %>%  
   filter(Role == "interviewer")
 
-# Función para contar días de fin de semana ####
+# Unir las dos versiones del cuestionario 
+llamados <- llamados %>% 
+  bind_rows(llamados2)
+
+asignaciones <- asignaciones %>% 
+  bind_rows(asignaciones2)
+
+principal <- principal %>%
+  mutate(version = 1) %>% 
+  bind_rows(principal2 %>% mutate(version = 2,
+                                  r02_2 = as.character(r02_2)))
+
+actions <- action %>% 
+  bind_rows(action2)
+
+# Función para contar días de fin de semana
 contar_dias_finde <- function(fecha_inicial, fecha_final) {
   secuencia_dias <- as_date(fecha_inicial:fecha_final)
   dia_semana <-  wday(secuencia_dias, label = TRUE) %>%
     as.character()
-  length(dia_semana[dia_semana == "sáb\\." | dia_semana == "dom\\."]) }
+  length(dia_semana[dia_semana == "sáb\\." | dia_semana == "dom\\."])
+}
+
+
+# Se selecciona una fila por cada entrevista 
+llamados_hogar <- llamados %>% 
+  group_by(interview__id, interview__key) %>% 
+  slice(1) %>% 
+  ungroup()
 
 # Dejamos un hogar por cada vivienda, para reportar a nivel de vivienda 
 # Usamos folio, ya que esta variable contiene la información de vivienda
 principal_viv <- principal %>% 
+  right_join(llamados_hogar, by = c("interview__id", "interview__key")) %>% # Dejar solo lo que tiene registros en la hoja de ruta
   group_by(folio) %>% 
   mutate(interview__status = max(interview__status)) %>% 
   slice(1) %>% 
   ungroup()
 
+
 # Todas las que aparecen en la tabla principal
 unidades_iniciadas <- nrow(principal_viv)
+
+# Número de iniciadas por día 
+iniciadas_dia <- actions %>%
+  filter(action == 2) %>% 
+  right_join(llamados_hogar %>% 
+               select(interview__id, interview__key),
+             by = c("interview__id", "interview__key")) %>% # Dejar solo lo que tiene registros en la hoja de ruta
+  left_join(principal %>% 
+              select(interview__id, interview__key, folio),
+            by = c("interview__id", "interview__key")) %>% # Sacar el folio de acá
+  group_by(folio) %>% 
+  mutate(fecha = as_date(date)) %>% 
+  arrange(fecha) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  filter(!is.na(fecha)) %>% 
+  group_by(fecha) %>% 
+  summarise(iniciadas = n())
+
+completadas_dia <- actions %>% 
+  filter(action %in% c(3)) %>% 
+  group_by(interview__id, interview__key) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  right_join(llamados_hogar %>% 
+               select(interview__id, interview__key),
+             by = c("interview__id", "interview__key")) %>% # Dejar solo lo que tiene registros en la hoja de ruta
+  left_join(principal %>% 
+              select(interview__id, interview__key, folio, interview__status),
+            by = c("interview__id", "interview__key")) %>% # Sacar el folio de acá
+  group_by(folio) %>% 
+  mutate(fecha = as_date(date)) %>% 
+  arrange(fecha) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  filter(!is.na(fecha)) %>% 
+  group_by(fecha) %>% 
+  summarise(iniciadas = n())
 
 # Han sido rechazadas por el encargado de grupo
 rechazadas <- principal_viv %>% 
@@ -86,7 +160,10 @@ unidades_asignadas <- asignaciones %>%
   nrow()
 
 
-# Datos nivel nacional #####
+
+########################
+# Datos a nivel nacional
+# ######################
 
 datos_nacional <- data.frame(muestra = tamanio_muestra, 
                              asignadas = unidades_asignadas, 
@@ -106,23 +183,25 @@ datos_nacional <- datos_nacional %>%
   mutate(por_pendiente_enc = pendientes_encuestador / asignadas * 100,
          por_pendiente_eg = pendientes_revision / completadas * 100) %>% 
   relocate(muestra, asignadas, iniciadas, completadas, aprobadas, rechazadas_eg, pendientes_encuestador, pendientes_revision,
-           por_asignacion, por_iniciadas,por_completadas,  por_aprobadas, por_pendiente_enc, por_pendiente_eg  ) %>% mutate_if(.predicate = is.numeric, ~round(., 2))
+           por_asignacion, por_iniciadas,por_completadas,  por_aprobadas, por_pendiente_enc, por_pendiente_eg  ) %>% 
+  mutate_if(.predicate = is.numeric, ~round(., 2))
 
 # Tamaño muestra nivel regional
 muestra_region <- muestra_seguimiento %>% 
   select(region = Region_16) %>% 
   bind_rows(muestra_casen %>% select(region)) %>% 
   group_by(region) %>% 
-  dplyr::summarise(muestra = n())
+  summarise(muestra = n())
 
-# Datos nivel regional #####
-
-datos_region <-  principal_viv %>% 
+######################  
+# DAtos nivel regional
+# ####################
+datos_region <- principal_viv %>% 
   mutate(rechazada = if_else(interview__status == 65, 1, 0, missing = 0),
          completada =  if_else(interview__status == 100 | interview__status == 120 | interview__status == 130, 1 , 0, missing = 0),
          aprobada = if_else(interview__status == 120 | interview__status == 130, 1, 0, missing = 0)) %>% 
   group_by(region) %>% 
-   dplyr::summarise(iniciadas = n(),
+  summarise(iniciadas = n(),
             rechazadas_eg = sum(rechazada),
             completadas = sum(completada),
             aprobadas = sum(aprobada)) %>% 
@@ -148,21 +227,17 @@ muestra_comuna <- muestra_seguimiento %>%
               mutate(muestra = "refresco")) %>%  # hay dos casos que no hacen match
   left_join(comunas, by = c("cut" = "comuna")) %>% 
   group_by(comuna_glosa, cut) %>% 
-   dplyr::summarise(muestra = n())
+  summarise(muestra = n())
 
-
-### Unimos nacionales y regionales ####
-plot1 <- datos_nacional %>% 
-  bind_rows(datos_region)
-
-# Datos comunales ####
-
+#######################
+# Datos nivel comunal #
+# #####################
 datos_comuna <-  principal_viv %>% 
   mutate(rechazada = if_else(interview__status == 65, 1 , 0, missing = 0),
          completada =  if_else(interview__status == 100 | interview__status == 120 | interview__status == 130, 1 , 0, missing = 0),
          aprobada = if_else(interview__status == 120 | interview__status == 130, 1, 0, missing = 0)) %>% 
   group_by(comuna) %>% 
-   dplyr::summarise(iniciadas = n(),
+  summarise(iniciadas = n(),
             rechazadas_eg = sum(rechazada),
             completadas = sum(completada),
             aprobadas = sum(aprobada)) %>% 
@@ -177,29 +252,79 @@ datos_comuna <-  principal_viv %>%
   select(-comuna) %>% 
   relocate(comuna_glosa, muestra, iniciadas, completadas, aprobadas, por_iniciadas, por_completadas,  por_aprobadas)  
 
+# Plot 1 gestión a nivel nacional ####
 
-### Gráfico 1 ####
-# gestión a nivel nacional
+# datos_nacional %>%
+#  kbl(caption = "<center><strong>Indicadores de gestión - Nivel Nacional</strong></center>") %>%
+#  kable_paper("hover", full_width = F)
 
-datos_nacional %>%
-  kbl(caption = "<center><strong>Indicadores de gestión - Nivel Nacional</strong></center>") %>%
-  kable_paper("hover", full_width = F)
+t1_Ind_gest_Nacional <- DT::datatable(datos_nacional)
 
-fig <- datos_nacional %>% 
+fig_1_ind_gest_nacional <- datos_nacional %>% 
   select(starts_with("por"), -por_pendiente_enc, -por_pendiente_eg) %>% 
   pivot_longer(cols = starts_with("por"), names_to = "indicador", values_to = "porcentaje") %>%
   mutate(indicador = factor(indicador, levels = c("por_asignacion", "por_iniciadas", "por_completadas", "por_aprobadas"))) %>% 
   ggplot(aes(x = indicador, y = porcentaje, fill = indicador)) +
   geom_bar(position = "dodge", stat = "identity") +
-  labs(title = "Indicadores de gestión a nivel nacional")
+  labs(title = "Indicadores de gestión a nivel nacional") + theme_elegante()
 
-ggplotly(fig)
+fig_1_ind_gest_nacional <- ggplotly(fig_1_ind_gest_nacional) 
 
 
-# Nivel regional ####
+### Plot completadas dia ####
+
+plot_completadas_dia <- completadas_dia %>% 
+  rename(completadas = iniciadas) %>% 
+  ggplot(aes(x = fecha, y = completadas, group = 1, color = "coral")) +
+  geom_line() +
+  geom_point() +
+  scale_x_date(date_breaks = "1 day", date_labels = "%Y %b %d") +
+  labs(title = "Encuestas completadas por día",
+       caption = "Nota: corresponde a las unidades con status 100") +
+   theme_elegante() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 60),
+        legend.position = "none") 
+
+plot_completadas_dia <- ggplotly(plot_completadas_dia) %>% 
+  layout(margin = list(b=130,t=100), annotations = 
+           list(x = 1, y = -0.5, text = "Nota: corresponde a las unidades con status 100, 120 o 130", 
+                showarrow = F, xref='paper', yref='paper', 
+                xanchor='right', yanchor='auto', xshift=0, yshift=0,
+                font=list(size=15,
+                          fontfacet="italic"))
+  )
+
+
+### Plot iniciada dia ####
+
+plot_iniciadas_dia <- iniciadas_dia %>% 
+  ggplot(aes(x = fecha, y = iniciadas, group = 1, color = "coral")) +
+  geom_line() +
+  geom_point() +
+  scale_x_date(date_breaks = "1 day", date_labels = "%Y %b %d") +
+  labs(title = "Encuestas iniciadas por día",
+       caption = "Nota: corresponde a las unidades en las que ha sido presionado el botón iniciar") +
+  theme_elegante() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 60),
+        legend.position = "none")  
+
+plot_iniciadas_dia <- ggplotly(plot_iniciadas_dia) %>% 
+  layout(margin = list(b=130,t=100), annotations = 
+           list(x = 1, y = -0.5, text = "Nota: corresponde a las unidades en las que ha sido presionado el botón iniciar", 
+                showarrow = F, xref='paper', yref='paper', 
+                xanchor='right', yanchor='auto', xshift=0, yshift=0,
+                font=list(size=15,fontfacet="italic")))
+
+# datos a nivel regional ####
 datos_region %>%
   kbl(caption = "<center><strong>Indicadores de gestión - Nivel Regional</strong></center>") %>%
   kable_paper("hover", full_width = F)
+
+### plot datos nivel regional ####
 
 fig <- datos_region %>% 
   select(region, starts_with("por")) %>% 
@@ -208,11 +333,11 @@ fig <- datos_region %>%
   ggplot(aes(x = region, y = porcentaje, fill = indicador)) +
   geom_bar(position = "dodge", stat = "identity") +
   scale_x_continuous(breaks = seq(1, 16, 1)) +
-  labs(title = "Indicadores de gestión a nivel regional")
+  labs(title = "Indicadores de gestión a nivel regional") + theme_elegante()
 
-ggplotly(fig)
+fig_2_ind_gest_regional <- ggplotly(fig) 
 
-
+## tabla datos a nivel comunal ####
 DT::datatable(datos_comuna, 
               caption =  htmltools::tags$caption(
                 style = 'text-align: center; font-size: 12px',
@@ -221,13 +346,11 @@ DT::datatable(datos_comuna,
 
 
 # Se construye una tabla que solo contiene los casos que han sido completados o aprobados por el EG
-# Tabla EG ####
-
 aapor <- llamados %>% 
   left_join(principal %>% select(interview__id, interview__key, interview__status, region, comuna, folio),
             by = c("interview__id", "interview__key") ) %>% 
   mutate(cod_ent = if_else(cod_ent < 0, cod_ent * -1, cod_ent )) %>% # encuestadores que olvidaron poner el cdf
-  filter(interview__status >= 100 & cod_ent > 0) %>%  # dejar solo las completadas y sacar los missing en código de entrevista 
+  filter((interview__status == 100 | interview__status == 120 | interview__status == 130) & cod_ent > 0) %>%  # dejar solo las completadas y sacar los missing en código de entrevista 
   group_by(folio) %>% # dejar solo la situación más reciente del folio
   arrange(cod_ent) %>% 
   slice(1) %>% 
@@ -239,7 +362,7 @@ aapor <- llamados %>%
     rechazo = if_else(cod_ent %in% c(1200, 2000), 1, 0, missing = 0 )
   ) 
 
-aapor$entrevistada
+
 
 ##################
 # NIVEL NACIONAL #
@@ -248,14 +371,14 @@ aapor$entrevistada
 # La tasa de cooperación se calcula por separado debido a que el denominador es diferente
 tasa_cooperacion <- aapor %>% 
   filter(cod_ent %in% c(1100, 1200, 2000, 2310:2360) ) %>% 
-  dplyr::count(entrevistada) %>% 
+  count(entrevistada) %>% 
   mutate(tasa = n / sum(n) * 100) %>% 
-  dplyr::filter(entrevistada == 1) %>% 
+  filter(entrevistada == 1) %>% 
   select(cooperacion_por = tasa)
 
 # Calcular las tasas restantes y pegar la información de la tasa de cooperación. La tabla aapor solo tiene las completadas
 tasas_nacional <- aapor %>%  
-   dplyr::summarise(completadas = n(),
+  summarise(completadas = n(),
             desconocida = sum(desconocida),
             contacto = sum(contacto),
             rechazo = sum(rechazo),
@@ -283,7 +406,7 @@ tasa_cooperacion_region <- aapor %>%
 
 tasas_region <- aapor %>% 
   group_by(region) %>% 
-   dplyr::summarise(completadas = n(),
+  summarise(completadas = n(),
             desconocida = sum(desconocida),
             contacto = sum(contacto),
             rechazo = sum(rechazo),
@@ -298,8 +421,9 @@ tasas_region <- aapor %>%
   rename(lograda = entrevistada) 
 
 
+
 ##################
-# Nivel comunal #####
+# NIVEL comunal #
 ##################
 tasa_cooperacion_comuna <- aapor %>% 
   filter(cod_ent %in% c(1100, 1200, 2000, 2310:2360) ) %>% 
@@ -310,7 +434,7 @@ tasa_cooperacion_comuna <- aapor %>%
 
 tasas_comuna <- aapor %>% 
   group_by(comuna) %>% 
-   dplyr::summarise(completadas = n(),
+  summarise(completadas = n(),
             desconocida = sum(desconocida),
             contacto = sum(contacto),
             rechazo = sum(rechazo),
@@ -326,12 +450,12 @@ tasas_comuna <- aapor %>%
   relocate(comuna_glosa) %>% 
   rename(lograda = entrevistada)
 
-
-
-# Resultados operativos a nivel nacional
+# Resultados operativos a nivel nacional ####
 tasas_nacional %>%
   kbl(caption = "<center><strong>Indicadores de resultado operativo - Nivel Nacional</strong></center>") %>%
   kable_paper("hover", full_width = F)
+
+# fig_3_resultado_op_nacional ####
 
 fig <- tasas_nacional %>% 
   select(ends_with("_por"), tasa_respuesta) %>% 
@@ -339,28 +463,62 @@ fig <- tasas_nacional %>%
   ggplot(aes(x = indicador, y = porcentaje, fill = indicador)) +
   geom_bar(position = "dodge", stat = "identity") +
   labs(title = "Indicadores de resultado operativo - Nivel Nacional") +
+  theme_elegante() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
-ggplotly(fig)
+fig_3_resultado_op_nacional <- ggplotly(fig)
 
+tasas_acum <- aapor %>%  
+  mutate(fecha = as_date(hora_llamado)) %>% 
+  group_by(fecha) %>% 
+  summarise(completadas = n(),
+            desconocida = sum(desconocida),
+            contacto = sum(contacto),
+            rechazo = sum(rechazo),
+            entrevistada = sum(entrevistada)) %>% 
+  mutate(no_lograda = completadas - entrevistada) %>% 
+  ungroup() %>% 
+  bind_cols(muestra = tamanio_muestra) %>% # agregar tamaño muestral
+  bind_cols(cooperacion_por =  tasa_cooperacion$cooperacion_por) %>% # agregar tasa de cooperación
+  mutate_at(vars(desconocida, contacto, rechazo, entrevistada), list(por = ~. / completadas * 100)) %>% 
+  mutate(tasa_logro = round(entrevistada / muestra * 100 , 2) ) %>% 
+  mutate_if(.predicate = is.numeric, ~round(., 2)) %>% 
+  rename(lograda = entrevistada,
+         lograda_por = entrevistada_por,
+         tasa_respuesta = tasa_logro) %>%
+  mutate(muestra_objetivo = 5331,
+         tasa_logro = lograda / muestra_objetivo * 100) %>% 
+  relocate(muestra, muestra_objetivo) %>% 
+  select(fecha, tasa_respuesta, tasa_logro) %>% 
+  filter(!is.na(fecha)) %>% 
+  mutate(respuesta_acum = cumsum(tasa_respuesta),
+         logro_acum = cumsum(tasa_logro))
 
+# fig_4_resultado_acum_nacional ####
+
+tasas_acum <- tasas_acum %>% 
+  pivot_longer(cols = c("respuesta_acum", "logro_acum"), names_to = "tasa", values_to = "valor") %>% 
+  mutate(fecha = as.Date(fecha)) %>% 
+  ggplot(aes(x = fecha, y = valor, group = tasa, color = tasa)) +
+  geom_line() +
+  geom_point() +
+  scale_x_date(date_breaks = "1 day", date_labels = "%Y %b %d") +
+  theme_elegante() +
+  theme(axis.text.x = element_text(angle = 60))
+
+fig_4_resultado_acum_nacional <- ggplotly(tasas_acum)
 
 # Resultados operativos a nivel regional
 tasas_region %>%
   kbl(caption = "<center><strong>Indicadores de resultado operativo - Nivel regional</strong></center>") %>%
   kable_paper("hover", full_width = F)
 
+
 DT::datatable(tasas_comuna, 
               caption =  htmltools::tags$caption(
                 style = 'text-align: center; font-size: 12px',
                 htmltools::em('Indicadores de resultado operativo - Nivel Comunal'))
 )
-
-
-
-
-
-# Rendimiento diario encuestador
 
 
 ################
@@ -381,27 +539,46 @@ llamados_hogar <- llamados %>%
   filter(cod_ent > 0) %>% # sacar los missings
   select(interview__key, interview__id, rutStr, cod_ent, nomenc, hora_llamado) %>%
   group_by(interview__id, interview__key) %>% 
-  arrange(cod_ent) %>% 
-  slice(1) %>% 
+  arrange(cod_ent) %>%  
+  slice(1) %>% # código más bajo 
   ungroup()
 
 
 # Se obtiene el estatus de SUSO de la tabla principal.
 # El código de disposición final se obtiene de la tabla auxiliar creda más arriba
 insumo_tabla6 <- asignaciones %>%
-  filter(action == 7 & responsible__role == 1) %>% # las que han sido reasignadas a un encuestador
+  filter((action == 7 ) & responsible__role == 1) %>% # las que han sido reasignadas a un encuestador
+  mutate(time_date = make_datetime(year(date), month(date), day(date), hour(time), minute(time), second(time))) %>% 
   group_by(assignment__id) %>% 
-  arrange(desc(as_date(date)) ) %>% 
+  arrange(desc(time_date)) %>% 
   slice(1) %>% 
   group_by(responsible__name) %>%
   mutate(total_asignaciones = n()) %>%
   ungroup() %>%
   select(responsible__name, assignment__id, total_asignaciones ) %>%
-  left_join(principal %>% 
-              select(assignment__id, interview__id, interview__key, interview__status),
-            by = "assignment__id") %>% # obtener el id de entrevista y el estatus en suso
+  right_join(principal %>%  # se dejan todos los que están en la tabla principal
+               group_by(folio, id_hogar) %>% 
+               arrange(desc(interview__status)) %>% # se deja el estatus más alto, porque hay asignaciones repetidas
+               slice(1) %>% 
+               ungroup() %>% 
+               select(assignment__id, interview__id, interview__key, interview__status, folio),
+             by = "assignment__id") %>% # obtener el id de entrevista y el estatus en suso
   left_join(llamados_hogar, by = c("interview__id", "interview__key")) %>% # obtener datos de unidades gestionadas
-  mutate(completada = if_else(interview__status == 100 | interview__status == 120 | interview__status == 130, 1, 0, missing = 0), 
+  left_join(actions %>% 
+              filter(action == 1 & responsible__role == 1) %>% 
+              group_by(interview__id) %>% 
+              arrange(desc(date)) %>%
+              slice(1) %>% 
+              ungroup() %>% 
+              select(responsible__name, interview__id, interview__key ),
+            by = c("interview__id", "interview__key")) %>%  # rescatar casos que están en principal, pero no en asignaciones
+  mutate(responsible__name.x = if_else(is.na(responsible__name.x), responsible__name.y, responsible__name.x),
+         responsible__name = responsible__name.x) %>% 
+  group_by(responsible__name) %>% 
+  mutate(total_asignaciones_aux = max(total_asignaciones, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(total_asignaciones = if_else(is.na(total_asignaciones),total_asignaciones_aux, total_asignaciones)) %>% 
+  mutate(completada = if_else((interview__status == 100 | interview__status == 120 | interview__status == 130), 1, 0, missing = 0), 
          lograda = if_else(cod_ent == 1100 & (interview__status == 100 | interview__status == 120 | interview__status == 130), 1, 0, missing = 0),
          fecha = as_date(hora_llamado)) %>%
   group_by(responsible__name) %>%
@@ -412,14 +589,22 @@ insumo_tabla6 <- asignaciones %>%
          logradas_diarios = sum(lograda)) %>%
   slice(1) %>%
   ungroup() %>%
-  left_join(primera_asigacion, by = "responsible__name") %>% 
+  left_join(primera_asigacion, by = "responsible__name") %>% # pegar fecha de la primera asignación
   mutate(fecha_inicial = as_date(date),
          fecha_final = as_date(Sys.Date())) %>%
   mutate(dias_corridos = fecha_final - fecha_inicial + 1,
          n_finde = map2_int(.x = .data$fecha_inicial, .y = .data$fecha_final, ~contar_dias_finde(.x, .y)),
-         dias_habiles = as.integer(dias_corridos - n_finde)   )
+         dias_habiles = as.integer(dias_corridos - n_finde)   ) %>% 
+  select(-responsible__name.x, -responsible__name.y, -total_asignaciones_aux) # descartar cosas que no sirven
 
 # Hacer ajuste por días feriados durante el periodo de levantamiento
+
+if (Sys.Date() > as_date("2021-06-21")) {
+  insumo_tabla6 <- insumo_tabla6 %>% 
+    mutate(dias_habiles =  dias_habiles - 1)
+} 
+
+
 if (Sys.Date() > as_date("2021-06-28")) {
   insumo_tabla6 <- insumo_tabla6 %>% 
     mutate(dias_habiles =  dias_habiles - 1)
@@ -459,17 +644,6 @@ tabla6 <- tabla6_general %>%
 
 
 
-
-DT::datatable(tabla6_general, 
-              caption =  htmltools::tags$caption(
-                style = 'text-align: center; font-size: 12px',
-                htmltools::em('Rendimiento encuestadores'))
-)
-
-
-
-
-
 fig <- insumo_tabla6 %>%
   select(responsible__name, logradas_diarios, fecha) %>%
   pivot_wider(names_from = "fecha" , values_from = "logradas_diarios", names_prefix = "fecha_") %>% 
@@ -484,6 +658,7 @@ fig <- insumo_tabla6 %>%
 ggplotly(fig)
 
 
+
 # Esfuerzo operativo
 
 
@@ -495,9 +670,10 @@ ggplotly(fig)
 # Se obtiene el estatus de SUSO de la tabla principal.
 # El código de disposición final se obtiene de la tabla de llamados
 insumo_tabla7 <- asignaciones %>%
-  filter(action == 7 & responsible__role == 1) %>% # las que han sido reasignadas a un encuestador
+  mutate(time_date = make_datetime(year(date), month(date), day(date), hour(time), minute(time), second(time))) %>% 
+  filter((action == 7 | action == 8) & responsible__role == 1) %>% # las que han sido reasignadas a un encuestador
   group_by(assignment__id) %>% 
-  arrange(desc(as_date(date)) ) %>% 
+  arrange(desc(as_date(time_date)) ) %>% 
   slice(1) %>% 
   group_by(responsible__name) %>%
   mutate(total_asignaciones = n()) %>%
@@ -579,11 +755,13 @@ tabla7_por_dia_intentos <- insumo_tabla7 %>%
 
 
 
+
 DT::datatable(tabla7_general, 
               caption =  htmltools::tags$caption(
                 style = 'text-align: center; font-size: 16px',
                 htmltools::em('Esfuerzo operativo'))
 )
+
 
 
 
@@ -595,6 +773,7 @@ fig <- insumo_tabla7 %>%
   geom_point()
 
 ggplotly(fig)
+
 
 
 # Resumen de esfuerzo operativo
@@ -625,6 +804,7 @@ DT::datatable(tabla_resumen,
 
 
 
+
 ## Esfuerzo versus logro
 
 
@@ -632,8 +812,12 @@ DT::datatable(tabla_resumen,
 tabla_resumen <- parte1 %>% 
   left_join(parte2, by = "responsible__name") %>% 
   left_join(usuarios %>% select(login, fullname), by = c("responsible__name" = "login")) %>% # pegar nombre de encuestadores
+  mutate(rutStr2 = str_sub(string = rutStr, start = 1, end = nchar(rutStr) - 1),
+         rutStr2 = if_else(nchar(rutStr2) == 8, str_sub(rutStr2, 1, 3), str_sub(rutStr2, 1, 2)),  
+         rutStr2 = as.integer(rutStr2)) %>%
   mutate(efectividad = intentos_total / logradas_total) %>% 
   relocate(fullname)
+
 
 intentos_logro <-  tabla_resumen %>% 
   ggplot(aes(x = media_intentos, y = media_logradas, label = fullname)) +
@@ -669,22 +853,96 @@ ggplotly(contacto_logro)
 
 #cor(tabla_resumen$media_logradas, tabla_resumen$media_intentos)
 
+# Distribución temporal del esfuerzo operativo 
 
 
-
-
-
-
-# Distribución de intentos a lo largo del día
-
-
-llamados %>% 
+horas <- llamados %>% 
   mutate(hora = format(ymd_hms(hora_llamado), format = "%H:%M:%S"),
          hora = as.POSIXct(hms::parse_hm(hora))) %>% 
   filter(!is.na(hora)) %>% 
   ggplot(aes(x = hora)) +
   geom_histogram( bins = 50, alpha=0.6) +
-  scale_x_datetime(date_labels = "%H:%M", breaks = "1 hour" ) 
+  scale_x_datetime(date_labels = "%H:%M", breaks = "1 hour" )
+
+
+ggplotly(horas)
+
+esfuerzo_dia <- llamados %>% 
+  mutate(fecha = as_date(hora_llamado),
+         dia = wday(as_date(hora_llamado), label = T),
+         dia = str_remove(string = dia, pattern = "\\\\."),
+         dia = fct_relevel(dia, "lun", "mar", "mié", "jue", "vie", "sáb", "dom"),
+         fecha_dia = paste(fecha, dia)) %>%  
+  filter(!is.na(fecha)) %>% 
+  group_by(fecha_dia) %>% 
+  summarise(intentos = n()) %>%
+  mutate(habil = if_else(str_detect(fecha_dia, "sáb|dom|2021-06-21|2021-06-28|2021-07-16"), "no hábil", "hábil")) %>% 
+  ggplot(aes(x = fecha_dia, y = intentos, group = 1)) +
+  geom_line() +
+  geom_point(aes(color = habil)) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+ggplotly(esfuerzo_dia)
+
+
+
+
+
+dia_semana <- llamados %>% 
+  mutate( dia = wday(as_date(hora_llamado), label = T),
+          dia = str_remove(string = dia, pattern = "\\\\."),
+          dia = fct_relevel(dia, "lun", "mar", "mié", "jue", "vie", "sáb", "dom")) %>% 
+  group_by(dia) %>% 
+  summarise(intentos = n()) %>% 
+  filter(!is.na(dia)) %>% 
+  ggplot(aes(x = dia, y = intentos, fill = dia)) +
+  geom_bar(stat = "identity")
+
+ggplotly(dia_semana)
+
+
+
+######## GUARDAMOS  OBJETOS #####
+datos_nacional <- as.data.frame(t(datos_nacional))
+datos_nacional$nombres <- str_replace_all(toupper(row.names(datos_nacional)),"_"," ") %>% stringr::str_replace("POR", "PORCENTAJE")
+row.names(datos_nacional) <- NULL
+
+datos_nacional <- datos_nacional %>% mutate(V1 = if_else(stringr::str_detect(nombres,"POR"),paste0(V1,"%"),as.character(V1)))
+
+## TAB 1 ####
+# 1
+saveRDS(datos_nacional,"objetos/datos_nacional.rds")
+# 2
+saveRDS(fig_1_ind_gest_nacional,"objetos/fig_1_ind_gest_nacional.rds")
+# 3
+saveRDS(plot_completadas_dia, "objetos/plot_completadas_dia.rds")
+# 4
+saveRDS(plot_iniciadas_dia, "objetos/plot_iniciadas_dia.rds")
+# 5
+saveRDS(datos_region,"objetos/datos_region.rds")
+# 6
+saveRDS(fig_2_ind_gest_regional,"objetos/fig_2_ind_gest_regional.rds")
+# 7
+saveRDS(datos_comuna,"objetos/datos_comuna.rds") 
+
+## TAB 2 ####
+
+tasas_nacional  <- as.data.frame(t(tasas_nacional ))
+tasas_nacional$nombres <- str_replace_all(toupper(row.names(tasas_nacional )),"_"," ") %>% stringr::str_replace("POR", "PORCENTAJE")
+row.names(tasas_nacional ) <- NULL
+
+tasas_nacional  <- tasas_nacional  %>% mutate(V1 = if_else(stringr::str_detect(nombres,"POR"),paste0(V1,"%"),as.character(V1)))
+
+saveRDS(tasas_nacional,"objetos/tasas_nacional.rds")
+
+saveRDS(fig_3_resultado_op_nacional,"objetos/fig_3_resultado_op_nacional.rds")
+
+saveRDS(fig_4_resultado_acum_nacional,"objetos/fig_3_resultado_acum_nacional.rds")
+
+
+# Rendimiento actualizado
+#writexl::write_xlsx(tabla6_por_dia, "reportes_diarios_sdo/reportes_excel_sdo/rendimiento_diario.xlsx")
+#writexl::write_xlsx(tabla7_por_dia_intentos, "reportes_diarios_sdo/reportes_excel_sdo/intentos_diarios.xlsx")
 
 
 
@@ -694,11 +952,6 @@ llamados %>%
 
 
 
-
-
-# Rendimiento actualizado´
-writexl::write_xlsx(tabla6_por_dia, paste0(ruta_datos,"/reportes_diarios_sdo/reportes_excel_sdo/rendimiento_diario.xlsx"))
-writexl::write_xlsx(tabla7_por_dia_intentos,paste0(ruta_datos,"/reportes_diarios_sdo/reportes_excel_sdo/intentos_diarios.xlsx"))
 
 
 
